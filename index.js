@@ -37,7 +37,7 @@ app.use('/api/', limiter);
 app.use(cors({
  origin: [
   'http://localhost:5173', // local dev
-   'https://freelance-app-frontend-hdm6.vercel.app/', // Vercel deployed frontend
+   'https://freelance-app-frontend-hdm6.vercel.app', // Vercel deployed frontend
 ],
   credentials: true
 }));
