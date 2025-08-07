@@ -19,6 +19,15 @@ const app = express();
 // Connect to database
 connectDB();
 
+// CORS configuration
+app.use(cors({
+ origin: [
+  'http://localhost:5173', // local dev
+   'https://freelance-app-frontend-hdm6.vercel.app', // Vercel deployed frontend
+],
+  credentials: true
+}));
+
 // Security middleware
 app.use(helmet());
 
@@ -32,15 +41,6 @@ const limiter = rateLimit({
   }
 });
 app.use('/api/', limiter);
-
-// CORS configuration
-app.use(cors({
- origin: [
-  'http://localhost:5173', // local dev
-   'https://freelance-app-frontend-hdm6.vercel.app', // Vercel deployed frontend
-],
-  credentials: true
-}));
 
 // Stripe webhook raw body
 app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), require('./controllers/paymentController').stripeWebhook);
