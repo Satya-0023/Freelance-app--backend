@@ -28,6 +28,9 @@ app.use(cors({
   credentials: true
 }));
 
+app.set('trust proxy', 1); // Trust first proxy (Render uses reverse proxies)
+
+
 // Security middleware
 app.use(helmet());
 
