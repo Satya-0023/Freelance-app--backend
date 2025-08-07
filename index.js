@@ -24,8 +24,8 @@ app.use(helmet());
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
   message: {
     success: false,
     error: 'Too many requests from this IP, please try again later.'
@@ -39,18 +39,22 @@ app.use(cors({
   credentials: true
 }));
 
-// Stripe webhook needs raw body
-// IMPORTANT: This must come BEFORE express.json()
-app.post('/api/payments/webhook', express.raw({type: 'application/json'}), require('./controllers/paymentController').stripeWebhook);
+// Stripe webhook raw body
+app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), require('./controllers/paymentController').stripeWebhook);
 
-// Body parser middleware (for all other routes)
+// Body parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Logging middleware (disabled for cleaner output)
+// Logging middleware (optional)
 // if (process.env.NODE_ENV === 'development') {
 //   app.use(morgan('dev'));
 // }
+
+// ✅ Root route for health check (Render will show this)
+app.get('/', (req, res) => {
+  res.send('<h2>🎉 Freelance Marketplace Backend is Live!</h2><p>Status: ✅ Running</p>');
+});
 
 // Health check route
 app.get('/api/health', (req, res) => {
@@ -66,7 +70,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/gigs', require('./routes/gigs'));
-app.use('/api/services', require('./routes/gigs')); // Alias for frontend compatibility
+app.use('/api/services', require('./routes/gigs')); // Alias
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/reviews', require('./routes/reviews'));
 app.use('/api/messages', require('./routes/messages'));
@@ -78,7 +82,7 @@ app.use('/api/admin', require('./routes/admin'));
 // 404 handler
 app.use(notFound);
 
-// Error handler (must be last)
+// Error handler
 app.use(errorHandler);
 
 // Start server
@@ -98,7 +102,7 @@ const io = new Server(server, {
 });
 
 let onlineUsers = [];
-let orderRooms = new Map(); // Track users in order rooms
+let orderRooms = new Map();
 
 const addUser = (userId, socketId) => {
   const existingUser = onlineUsers.find(user => user.userId === userId);
@@ -106,19 +110,15 @@ const addUser = (userId, socketId) => {
     existingUser.socketId = socketId;
   } else {
     onlineUsers.push({ userId, socketId });
-    // Emit userOnline event to all clients
     io.emit('userOnline', userId);
   }
-  // console.log(`User ${userId} added to online list. Total online: ${onlineUsers.length}`);
 };
 
 const removeUser = (socketId) => {
   const user = onlineUsers.find(user => user.socketId === socketId);
   if (user) {
-    // Emit userOffline event to all clients
     io.emit('userOffline', user.userId);
     onlineUsers = onlineUsers.filter(user => user.socketId !== socketId);
-    // console.log(`User ${user.userId} removed from online list. Total online: ${onlineUsers.length}`);
   }
 };
 
@@ -131,102 +131,74 @@ const getOnlineUserIds = () => {
 };
 
 io.on("connection", (socket) => {
-  // console.log(`🟢 A user connected: ${socket.id}`);
-
-  // Add user to online list
   socket.on("addUser", (userId) => {
     addUser(userId, socket.id);
     socket.emit("connectionStatus", { status: "connected", userId });
-    // Send current online users to the newly connected user
     socket.emit("onlineUsers", getOnlineUserIds());
     io.emit("getUsers", onlineUsers);
   });
 
-  // Join order room for messaging
   socket.on("joinOrder", ({ orderId, userId }) => {
     const roomName = `order_${orderId}`;
     socket.join(roomName);
-    
+
     if (!orderRooms.has(orderId)) {
       orderRooms.set(orderId, new Set());
     }
     orderRooms.get(orderId).add(userId);
-    
-    // console.log(`👥 User ${userId} joined order room ${orderId} (${roomName})`);
-    // console.log(`📊 Room ${orderId} now has ${orderRooms.get(orderId).size} users`);
-    
-    // Notify user they joined the room
+
     socket.emit("roomJoined", { orderId, userId, roomName });
-    
-    // Broadcast to room that a new user joined
     socket.to(roomName).emit("userJoined", { userId, orderId });
   });
 
-  // Send and get message
   socket.on("sendMessage", (messageData) => {
-    // console.log("📨 Received message:", messageData);
-    
     const { senderId, receiverId, content, orderId } = messageData;
     const roomName = `order_${orderId}`;
-    
+
     const message = {
-      id: Date.now().toString(), // Temporary ID for real-time
+      id: Date.now().toString(),
       senderId,
       receiverId,
       content,
       timestamp: new Date(),
-      senderName: "User" // Will be populated from database
+      senderName: "User"
     };
 
-    // console.log("📤 Broadcasting message to order room:", roomName);
-
-    // Broadcast to all users in the order room (including sender)
     if (orderId) {
       io.in(roomName).emit("newMessage", message);
-      // console.log(`✅ Message broadcasted to order room: ${roomName}`);
     }
 
-    // Also send to specific user if they're online and not in the same room
     const user = getUser(receiverId);
     if (user && user.socketId !== socket.id) {
       io.to(user.socketId).emit("getMessage", message);
-      // console.log(`✅ Message sent to user: ${receiverId}`);
     }
 
-    // Acknowledge message received
     socket.emit("messageSent", { success: true, messageId: message.id });
   });
 
-  // Handle typing indicators
   socket.on("typing", ({ orderId, userId, isTyping }) => {
     socket.to(`order_${orderId}`).emit("userTyping", { userId, isTyping });
   });
 
-  // Handle disconnect
   socket.on("disconnect", () => {
-    // console.log(`🔴 A user disconnected: ${socket.id}`);
     removeUser(socket.id);
     io.emit("getUsers", onlineUsers);
   });
 
-  // Error handling
   socket.on("error", (error) => {
     console.error("Socket error:", error);
   });
 });
 
-// Handle unhandled promise rejections
+// Graceful shutdown
 process.on('unhandledRejection', (err, promise) => {
-  console.log(`Error: ${err.message}`);
-  // Close server & exit process
+  console.log(`Unhandled Rejection: ${err.message}`);
   server.close(() => process.exit(1));
 });
 
-// Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
-  console.log(`Error: ${err.message}`);
-  console.log('Shutting down the server due to uncaught exception');
+  console.log(`Uncaught Exception: ${err.message}`);
   process.exit(1);
 });
 
-module.exports = app; 
+module.exports = app;
