@@ -35,7 +35,10 @@ app.use('/api/', limiter);
 
 // CORS configuration
 app.use(cors({
-  origin: [process.env.CORS_ORIGIN || 'http://localhost:3000', 'http://localhost:5173'],
+ origin: [
+  'http://localhost:5173', // local dev
+   'https://freelance-app-frontend-hdm6.vercel.app/', // Vercel deployed frontend
+],
   credentials: true
 }));
 
